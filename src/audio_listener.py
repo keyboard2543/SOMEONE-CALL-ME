@@ -53,12 +53,26 @@ class AudioListener:
         return mics
 
     def match_keyword(self, text: str) -> Optional[str]:
-        """Checks if any configured keyword is found in the text."""
+        """Checks if any configured keyword is found in the text (substring or fuzzy match)."""
         text_lower = text.lower().strip()
+        from difflib import SequenceMatcher
+
         for kw in self.config.keywords:
             kw_clean = kw.lower().strip()
-            if kw_clean and kw_clean in text_lower:
+            if not kw_clean:
+                continue
+
+            # 1. Exact Substring Match
+            if kw_clean in text_lower:
                 return kw
+
+            # 2. Fuzzy Ratio Match for slight phonetic variations / suffixes
+            kw_len = len(kw_clean)
+            for i in range(0, max(1, len(text_lower) - kw_len + 2)):
+                sub = text_lower[i:i + kw_len + 2]
+                ratio = SequenceMatcher(None, kw_clean, sub).ratio()
+                if ratio >= 0.70:
+                    return kw
         return None
 
     def _audio_callback(self, recognizer: sr.Recognizer, audio: sr.AudioData) -> None:
@@ -67,44 +81,46 @@ class AudioListener:
             self.audio_queue.put(audio)
 
     def _process_queue_loop(self) -> None:
-        """Worker thread processing captured audio chunks using Dual Engine."""
+        """Worker thread processing captured audio chunks using Neural STT + Acoustic Secondary."""
         while not self._stop_event.is_set():
             try:
                 audio = self.audio_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
 
-            self.update_status("🟡 กำลังประมวลผลรูปแบบเสียง...")
+            self.update_status("🟡 กำลังประมวลผลคำพูด...")
+            matched_kw: Optional[str] = None
+            text_transcript: str = ""
 
-            # --- Engine 1: Acoustic Waveform MFCC+DTW Matcher ---
-            matched_by_acoustic = False
+            # --- Engine 1 (Primary): Neural Speech-To-Text Dictation ---
             try:
-                raw_wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
-                ac_result = self.acoustic_matcher.match_audio(raw_wav, threshold=78.0)
-                if ac_result:
-                    matched_kw, score = ac_result
-                    self.log(f"🎵 [Acoustic Waveform Match] พบรูปคลื่นเสียงคล้ายคำว่า '{matched_kw}' (ความเหมือน {score}%)")
-                    self.notifier.trigger_alert(matched_kw, f"รูปคลื่นเสียงคล้ายคำว่า '{matched_kw}' ({score}%)")
-                    matched_by_acoustic = True
-            except Exception as e:
+                text_transcript = self.recognizer.recognize_google(audio, language=self.config.language)
+                self.log(f"🗣️ ได้ยิน: '{text_transcript}'")
+
+                matched_kw = self.match_keyword(text_transcript)
+                if matched_kw:
+                    self.notifier.trigger_alert(matched_kw, text_transcript)
+            except sr.UnknownValueError:
+                # Speech was faint or unintelligible to STT
                 pass
+            except sr.RequestError as e:
+                self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบแปลงเสียง Google: {e}")
+            except Exception as e:
+                if not self._stop_event.is_set():
+                    self.log(f"⚠️ เกิดข้อผิดพลาดในการประมวลผลเสียง: {e}")
 
-            # --- Engine 2: Google Speech-To-Text Dictation Matcher ---
-            if not matched_by_acoustic:
+            # --- Engine 2 (Secondary): Acoustic Waveform MFCC+DTW Matcher ---
+            # Runs if STT couldn't find a text match (e.g. faint/distant voice)
+            if not matched_kw:
                 try:
-                    text = self.recognizer.recognize_google(audio, language=self.config.language)
-                    self.log(f"🗣️ ได้ยิน: '{text}'")
-
-                    matched_kw = self.match_keyword(text)
-                    if matched_kw:
-                        self.notifier.trigger_alert(matched_kw, text)
-                except sr.UnknownValueError:
+                    raw_wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
+                    ac_result = self.acoustic_matcher.match_audio(raw_wav, threshold=75.0)
+                    if ac_result:
+                        kw, score = ac_result
+                        self.log(f"🎵 [Acoustic Waveform Match] พบรูปคลื่นเสียงคล้ายคำว่า '{kw}' (ความเหมือน {score}%)")
+                        self.notifier.trigger_alert(kw, f"รูปคลื่นเสียงคล้ายคำว่า '{kw}' ({score}%)")
+                except Exception:
                     pass
-                except sr.RequestError as e:
-                    self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบแปลงเสียง Google: {e}")
-                except Exception as e:
-                    if not self._stop_event.is_set():
-                        self.log(f"⚠️ เกิดข้อผิดพลาดในการประมวลผลเสียง: {e}")
 
             self.audio_queue.task_done()
             if self.is_listening and self.audio_queue.empty():
