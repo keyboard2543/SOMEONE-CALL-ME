@@ -14,12 +14,12 @@ class AudioListener:
         self.status_callback = status_callback
         
         self.recognizer = sr.Recognizer()
-        # Tune recognition sensitivity & thresholds for distant voice capture
-        self.recognizer.pause_threshold = 0.5
-        self.recognizer.phrase_threshold = 0.2
-        self.recognizer.non_speaking_duration = 0.3
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.dynamic_energy_ratio = 1.15
+        # Tune recognition sensitivity & thresholds for complete phrase capture without chopping words
+        self.recognizer.pause_threshold = 0.8
+        self.recognizer.phrase_threshold = 0.1
+        self.recognizer.non_speaking_duration = 0.5
+        # CRITICAL: Keep dynamic_energy_threshold False so threshold stays fixed at user sensitivity
+        self.recognizer.dynamic_energy_threshold = False
 
         self.is_listening = False
         self.audio_queue: queue.Queue = queue.Queue()
@@ -83,8 +83,8 @@ class AudioListener:
                     self.notifier.trigger_alert(matched_kw, text)
 
             except sr.UnknownValueError:
-                # Faint speech / distant talking detected but not clear enough
-                self.log("🔉 ได้ยินเสียงพูดแผ่วเบา/ไกลๆ (ฟังคำพูดไม่ชัดเจน)")
+                # Speech was not intelligible (silent or low-confidence noise)
+                pass
             except sr.RequestError as e:
                 self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบแปลงเสียง Google: {e}")
             except Exception as e:
@@ -109,12 +109,11 @@ class AudioListener:
         try:
             mic = sr.Microphone(device_index=mic_index)
             with mic as source:
-                # Calibrate noise according to user-configured energy_threshold
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                # Apply high sensitivity user threshold
-                target_threshold = self.config.energy_threshold
-                self.recognizer.energy_threshold = max(50, target_threshold)
-                self.log(f"🎚️ ปรับระดับความไวรับเสียง Energy Threshold: {self.recognizer.energy_threshold}")
+                # Apply user-configured fixed energy threshold
+                target_threshold = max(30, self.config.energy_threshold)
+                self.recognizer.energy_threshold = target_threshold
+                self.recognizer.dynamic_energy_threshold = False
+                self.log(f"🎚️ ปรับระดับความไวรับเสียงคงที่ Energy Threshold: {self.recognizer.energy_threshold}")
         except Exception as e:
             self.log(f"❌ ไม่สามารถเปิดไมโครโฟนได้: {e}")
             self.update_status("เกิดข้อผิดพลาดในการเปิดไมโครโฟน")
@@ -130,11 +129,11 @@ class AudioListener:
             except queue.Empty:
                 break
 
-        # Start continuous background audio recorder
+        # Start continuous background audio recorder with 10s phrase limit
         self._stop_bg_listener = self.recognizer.listen_in_background(
             mic, 
             self._audio_callback, 
-            phrase_time_limit=5.0
+            phrase_time_limit=10.0
         )
 
         # Start async worker thread for speech recognition
