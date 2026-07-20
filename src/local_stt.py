@@ -40,7 +40,7 @@ class LocalSpeechEngine:
                 pass
 
     def transcribe_audio_data(self, audio_data) -> Optional[str]:
-        """Transcribes sr.AudioData 100% locally using PyThaiASR (Numpy 16kHz mode)."""
+        """Transcribes sr.AudioData 100% locally using PyThaiASR (Numpy 16kHz + RMS VAD Gate)."""
         try:
             raw_wav = audio_data.get_wav_data(convert_rate=16000, convert_width=2)
             fp = io.BytesIO(raw_wav)
@@ -51,6 +51,11 @@ class LocalSpeechEngine:
 
             if y.ndim > 1:
                 y = np.mean(y, axis=1)
+
+            # SPEECH VAD GATE: Ignore quiet room static to prevent PyThaiASR CTC text garbling
+            rms = float(np.sqrt(np.mean(y ** 2)))
+            if rms < 0.015:
+                return None
 
             # Resample to 16kHz if needed for Wav2Vec2 PyThaiASR
             if sr_val != 16000:
@@ -65,8 +70,11 @@ class LocalSpeechEngine:
                     import pythaiasr
                     text = pythaiasr.asr(y_numpy, sampling_rate=16000)
                     if text:
-                        return text.strip()
-                except Exception as e:
+                        text_clean = text.strip()
+                        # Filter out CTC noise artifact characters (e.g. 'ทคค', 'มตค')
+                        if len(text_clean) > 1 and not all(c in "ทคจนม " for c in text_clean):
+                            return text_clean
+                except Exception:
                     pass
 
             # 2. Faster-Whisper Local Model Backup
