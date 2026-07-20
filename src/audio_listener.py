@@ -3,9 +3,10 @@ import time
 import queue
 import speech_recognition as sr
 from typing import List, Optional, Callable, Dict
+from src.acoustic_matcher import AcousticMatcher
 
 class AudioListener:
-    """Listens continuously in the background without gaps using a Queue pipeline."""
+    """Listens continuously using a Dual Engine (Acoustic Waveform Pattern + STT Dictation)."""
 
     def __init__(self, config_manager, notifier, log_callback: Optional[Callable[[str], None]] = None, status_callback: Optional[Callable[[str], None]] = None):
         self.config = config_manager
@@ -14,12 +15,14 @@ class AudioListener:
         self.status_callback = status_callback
         
         self.recognizer = sr.Recognizer()
-        # Tune recognition sensitivity & thresholds for complete phrase capture without chopping words
+        # Tune recognition sensitivity & thresholds for complete phrase capture
         self.recognizer.pause_threshold = 0.8
         self.recognizer.phrase_threshold = 0.1
         self.recognizer.non_speaking_duration = 0.5
-        # CRITICAL: Keep dynamic_energy_threshold False so threshold stays fixed at user sensitivity
         self.recognizer.dynamic_energy_threshold = False
+
+        # Acoustic Waveform Feature Matcher (TTS Reference + MFCC + DTW)
+        self.acoustic_matcher = AcousticMatcher(log_callback=self.log)
 
         self.is_listening = False
         self.audio_queue: queue.Queue = queue.Queue()
@@ -64,36 +67,48 @@ class AudioListener:
             self.audio_queue.put(audio)
 
     def _process_queue_loop(self) -> None:
-        """Worker thread processing captured audio chunks asynchronously."""
+        """Worker thread processing captured audio chunks using Dual Engine."""
         while not self._stop_event.is_set():
             try:
                 audio = self.audio_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
 
-            self.update_status("🟡 กำลังประมวลผลคำพูด...")
+            self.update_status("🟡 กำลังประมวลผลรูปแบบเสียง...")
+
+            # --- Engine 1: Acoustic Waveform MFCC+DTW Matcher ---
+            matched_by_acoustic = False
             try:
-                # Recognize Thai speech
-                text = self.recognizer.recognize_google(audio, language=self.config.language)
-                self.log(f"🗣️ ได้ยิน: '{text}'")
-
-                # Check for keyword match
-                matched_kw = self.match_keyword(text)
-                if matched_kw:
-                    self.notifier.trigger_alert(matched_kw, text)
-
-            except sr.UnknownValueError:
-                # Speech was not intelligible (silent or low-confidence noise)
-                pass
-            except sr.RequestError as e:
-                self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบแปลงเสียง Google: {e}")
+                raw_wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
+                ac_result = self.acoustic_matcher.match_audio(raw_wav, threshold=65.0)
+                if ac_result:
+                    matched_kw, score = ac_result
+                    self.log(f"🎵 [Acoustic Waveform Match] พบรูปคลื่นเสียงคล้ายคำว่า '{matched_kw}' (ความเหมือน {score}%)")
+                    self.notifier.trigger_alert(matched_kw, f"รูปคลื่นเสียงคล้ายคำว่า '{matched_kw}' ({score}%)")
+                    matched_by_acoustic = True
             except Exception as e:
-                if not self._stop_event.is_set():
-                    self.log(f"⚠️ เกิดข้อผิดพลาดในการประมวลผลเสียง: {e}")
-            finally:
-                self.audio_queue.task_done()
-                if self.is_listening and self.audio_queue.empty():
-                    self.update_status("🟢 กำลังฟังเสียงภาษาไทยอย่างต่อเนื่อง...")
+                pass
+
+            # --- Engine 2: Google Speech-To-Text Dictation Matcher ---
+            if not matched_by_acoustic:
+                try:
+                    text = self.recognizer.recognize_google(audio, language=self.config.language)
+                    self.log(f"🗣️ ได้ยิน: '{text}'")
+
+                    matched_kw = self.match_keyword(text)
+                    if matched_kw:
+                        self.notifier.trigger_alert(matched_kw, text)
+                except sr.UnknownValueError:
+                    pass
+                except sr.RequestError as e:
+                    self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบแปลงเสียง Google: {e}")
+                except Exception as e:
+                    if not self._stop_event.is_set():
+                        self.log(f"⚠️ เกิดข้อผิดพลาดในการประมวลผลเสียง: {e}")
+
+            self.audio_queue.task_done()
+            if self.is_listening and self.audio_queue.empty():
+                self.update_status("🟢 กำลังฟังเสียงภาษาไทยอย่างต่อเนื่อง...")
 
     def start_listening(self) -> bool:
         """Starts continuous non-blocking background listening."""
@@ -106,10 +121,12 @@ class AudioListener:
         self.log(f"🎙️ กำลังเปิดใช้งานไมโครโฟน ({mic_name})...")
         self.update_status("กำลังปรับตั้งค่าเสียงรบกวนรอบข้าง...")
 
+        # Generate / update acoustic TTS templates for keywords
+        self.acoustic_matcher.update_keywords(self.config.keywords)
+
         try:
             mic = sr.Microphone(device_index=mic_index)
             with mic as source:
-                # Apply user-configured fixed energy threshold
                 target_threshold = max(30, self.config.energy_threshold)
                 self.recognizer.energy_threshold = target_threshold
                 self.recognizer.dynamic_energy_threshold = False
