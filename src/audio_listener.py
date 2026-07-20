@@ -5,8 +5,10 @@ import speech_recognition as sr
 from typing import List, Optional, Callable, Dict
 from src.acoustic_matcher import AcousticMatcher
 
+from src.local_stt import LocalSpeechEngine
+
 class AudioListener:
-    """Listens continuously using a Dual Engine (Acoustic Waveform Pattern + STT Dictation)."""
+    """Listens continuously using a 100% Local On-Device Engine + Multi-Voice Acoustic Matcher."""
 
     def __init__(self, config_manager, notifier, log_callback: Optional[Callable[[str], None]] = None, status_callback: Optional[Callable[[str], None]] = None):
         self.config = config_manager
@@ -21,7 +23,10 @@ class AudioListener:
         self.recognizer.non_speaking_duration = 0.5
         self.recognizer.dynamic_energy_threshold = False
 
-        # Acoustic Waveform Feature Matcher (TTS Reference + MFCC + DTW)
+        # 100% Local On-Device Offline Speech Engine (Faster-Whisper)
+        self.local_stt = LocalSpeechEngine(log_callback=self.log)
+
+        # Multi-Voice Acoustic Waveform Feature Matcher (5 Pitch Templates)
         self.acoustic_matcher = AcousticMatcher(log_callback=self.log)
 
         self.is_listening = False
@@ -81,7 +86,7 @@ class AudioListener:
             self.audio_queue.put(audio)
 
     def _process_queue_loop(self) -> None:
-        """Worker thread processing captured audio chunks using Neural STT + Acoustic Secondary."""
+        """Worker thread processing captured audio chunks using 100% Local On-Device Engines."""
         while not self._stop_event.is_set():
             try:
                 audio = self.audio_queue.get(timeout=0.5)
@@ -92,25 +97,18 @@ class AudioListener:
             matched_kw: Optional[str] = None
             text_transcript: str = ""
 
-            # --- Engine 1 (Primary): Neural Speech-To-Text Dictation ---
+            # --- Engine 1 (Primary): 100% Local On-Device Offline Speech Recognition (Faster-Whisper) ---
             try:
-                text_transcript = self.recognizer.recognize_google(audio, language=self.config.language)
-                self.log(f"🗣️ ได้ยิน: '{text_transcript}'")
-
-                matched_kw = self.match_keyword(text_transcript)
-                if matched_kw:
-                    self.notifier.trigger_alert(matched_kw, text_transcript)
-            except sr.UnknownValueError:
-                # Speech was faint or unintelligible to STT
-                pass
-            except sr.RequestError as e:
-                self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบแปลงเสียง Google: {e}")
+                local_text = self.local_stt.transcribe_audio_data(audio)
+                if local_text:
+                    self.log(f"💻 [Local On-Device] ได้ยิน: '{local_text}'")
+                    matched_kw = self.match_keyword(local_text)
+                    if matched_kw:
+                        self.notifier.trigger_alert(matched_kw, f"[Local] {local_text}")
             except Exception as e:
-                if not self._stop_event.is_set():
-                    self.log(f"⚠️ เกิดข้อผิดพลาดในการประมวลผลเสียง: {e}")
+                pass
 
-            # --- Engine 2 (Secondary): Acoustic Waveform MFCC+DTW Matcher ---
-            # Runs if STT couldn't find a text match (e.g. faint/distant voice)
+            # --- Engine 2 (Secondary): Multi-Voice Acoustic Waveform Matcher (100% Local) ---
             if not matched_kw:
                 try:
                     raw_wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
@@ -119,6 +117,20 @@ class AudioListener:
                         kw, score = ac_result
                         self.log(f"🎵 [Acoustic Waveform Match] พบรูปคลื่นเสียงคล้ายคำว่า '{kw}' (ความเหมือน {score}%)")
                         self.notifier.trigger_alert(kw, f"รูปคลื่นเสียงคล้ายคำว่า '{kw}' ({score}%)")
+                        matched_kw = kw
+                except Exception:
+                    pass
+
+            # --- Engine 3 (Tertiary): Cloud Google STT Backup ---
+            if not matched_kw:
+                try:
+                    cloud_text = self.recognizer.recognize_google(audio, language=self.config.language)
+                    self.log(f"☁️ [Cloud Backup] ได้ยิน: '{cloud_text}'")
+                    matched_kw = self.match_keyword(cloud_text)
+                    if matched_kw:
+                        self.notifier.trigger_alert(matched_kw, f"[Cloud] {cloud_text}")
+                except sr.UnknownValueError:
+                    pass
                 except Exception:
                     pass
 
