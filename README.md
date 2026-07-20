@@ -1,119 +1,111 @@
-# SOMEONE-CALL-ME
+# 🎙️ Someone Call Me
 
-ฟังไมโครโฟนของเครื่อง แล้ว**แจ้งเตือน**เมื่อได้ยินชื่อของคุณ  
-รองรับเสียงไกล / เบา และคำที่ออกเสียงคล้ายชื่อ
+**Someone Call Me** คือโปรแกรมดักฟังคำพูดภาษาไทยจากไมโครโฟนแบบ Real-time เมื่อระบบได้ยินคำพูดหรือชื่อที่ตั้งค่าไว้ จะส่งการแจ้งเตือน **Windows Toast Notification** และส่งเสียงพูดภาษาไทยแจ้งเตือนผ่าน **Text-to-Speech (TTS)** ทันที
 
-> Windows · Python 3.10+ · Offline STT (Whisper)
+---
 
-## Features
+## ✨ ฟีเจอร์หลัก (Features)
 
-- ฟังไมค์ต่อเนื่อง (chunk + overlap)
-- ถอดเสียงด้วย **faster-whisper** (ออฟไลน์)
-- จับชื่อแบบคลุมเครือ: fuzzy + phonetic + ตัวสะกดไทยที่ฟังคล้ายกัน
-- แจ้งเตือน: บี๊บ · Windows toast · พูดด้วย TTS
-- ตั้งค่าชื่อ / ความไว / ไมค์ ใน `config.yaml`
+- 🎙️ **ระบบตรวจจับคำพูดภาษาไทย (Speech Recognition `th-TH`)**:
+  - ถอดความเสียงพูดภาษาไทยแบบแม่นยำด้วย Google Speech Recognition API
+  - ตรวจจับคำสำคัญ (Keywords) ที่ต้องการดักฟังแบบ Real-time
+  - รองรับการเลือกอุปกรณ์ไมโครโฟน (Microphone Device Selector)
 
-## Quick start
+- 🔔 **การแจ้งเตือน Windows Toast Notification**:
+  - ส่งการแจ้งเตือนเนทีฟของ Windows 10 และ Windows 11 Action Center
+  - แสดงหัวข้อ, คำสำคัญที่ตรวจจับได้ และประโยคเต็มที่ระบบได้ยิน
 
-### 1) ติดตั้ง
+- 🔊 **เสียงพูดแจ้งเตือนภาษาไทย (Thai Text-To-Speech)**:
+  - เล่นเสียงพูดภาษาไทยอย่างเป็นธรรมชาติเมื่อตรวจพบคำสำคัญ (เช่น *"มีคนเรียกชื่อคุณค่ะ"*)
+  - สามารถปรับเปลี่ยนข้อความเสียงพูดและเปิด/ปิดเสียงพูดได้ตามต้องการ
 
-```powershell
-git clone https://github.com/keyboard2543/SOMEONE-CALL-ME.git
-cd SOMEONE-CALL-ME
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+- 🎨 **หน้าจอควบคุม GUI ดีไซน์ทันสมัย (Modern Dark Theme)**:
+  - พัฒนาด้วย Tkinter ใช้งานง่าย ปรับแต่งค่าต่างๆ ได้สะดวก
+  - เพิ่ม / ลบ คำสำคัญ (Keywords) ได้ไม่จำกัด
+  - ระบบ Cooldown ป้องกันการแจ้งเตือนซ้ำซาก
+  - แสดงสถานะการฟังเสียงแบบ Real-time (🟢 กำลังฟัง / 🟡 กำลังประมวลผล / 🔴 หยุดการทำงาน)
+  - หน้าต่าง Log บันทึกประวัติคำพูดที่ได้ยินพร้อม Timestamp
+  - ปุ่มกดทดสอบระบบแจ้งเตือนและเสียงพูด (`🧪 ทดสอบแจ้งเตือน`)
+
+- ⚙️ **บันทึกการตั้งค่าอัตโนมัติ (Config Persistence)**:
+  - จัดเก็บคำสำคัญ, สวิตช์การแจ้งเตือน, และข้อความเสียงลงไฟล์ `config.json` อัตโนมัติ
+
+---
+
+## 🛠️ ความต้องการของระบบ (Prerequisites)
+
+- **OS**: Windows 10 / Windows 11
+- **Python**: Python 3.10 ขึ้นไป
+- **Microphone**: ไมโครโฟนที่เชื่อมต่อกับคอมพิวเตอร์
+
+---
+
+## 🚀 วิธีการติดตั้งและใช้งาน (Installation & Setup)
+
+### 1. วิธีเปิดใช้งานอย่างง่าย (สำหรับ Windows)
+เพียงดับเบิ้ลคลิกไฟล์ **`run.bat`**
+> ระบบจะสร้าง Virtual Environment (`.venv`) และติดตั้ง Library ทั้งหมดให้อัตโนมัติในการเปิดครั้งแรก
+
+---
+
+### 2. วิธีการติดตั้งและรันด้วยตนเอง (Manual Setup)
+
+1. **สร้าง Virtual Environment และติดตั้ง Dependencies**:
+   ```cmd
+   python -m venv .venv
+   .\.venv\Scripts\pip.exe install -r requirements.txt
+   ```
+
+2. **เปิดใช้งานโปรแกรม**:
+   ```cmd
+   .\.venv\Scripts\python.exe main.py
+   ```
+   หรือรันสคริปต์ PowerShell:
+   ```powershell
+   .\run.ps1
+   ```
+
+---
+
+## 📖 คู่มือการใช้งานหน้าจอ GUI
+
+1. **เพิ่มคำสำคัญ (Keywords)**:
+   - พิมพ์ชื่อหรือคำพูดที่ต้องการดักฟังในช่อง *"คำสำคัญที่ดักฟัง"* (เช่น `สมชาย`, `มีคนเรียก`, `ช่วยด้วย`)
+   - กดปุ่ม **`➕ เพิ่ม`** หรือกด Enter
+
+2. **ปรับแต่งการแจ้งเตือน**:
+   - ทำเครื่องหมายถูกที่ **`🔔 เปิดการแจ้งเตือน Windows Toast`** หากต้องการให้เด้งป๊อปอัป
+   - ทำเครื่องหมายถูกที่ **`🔊 เปิดเสียงพูดภาษาไทย`** หากต้องการให้มีเสียงพูด
+   - แก้ไขข้อความในช่อง *"ข้อความเสียงพูดภาษาไทย"* ได้ตามใจชอบ
+
+3. **เลือกไมโครโฟน**:
+   - เลือกไมโครโฟนจากเมนูดรอปดาวน์ *"เลือกไมโครโฟน"*
+
+4. **เริ่มการทำงาน**:
+   - กดปุ่ม **`▶️ เริ่มฟังเสียง`**
+   - เมื่อระบบขึ้นสถานะ `🟢 กำลังฟังเสียงภาษาไทย...` สามารถทดสอบพูดคำสำคัญใส่ไมโครโฟนได้ทันที
+
+---
+
+## 📁 โครงสร้างโปรเจกต์ (Project Structure)
+
+```text
+SOMEONE-CALL-ME/
+├── main.py                # จุดเริ่มต้นเปิดแอปพลิเคชัน GUI
+├── run.bat                # สคริปต์รันโปรแกรมบน Windows (Batch)
+├── run.ps1                # สคริปต์รันโปรแกรมบน Windows (PowerShell)
+├── requirements.txt       # รายการ Python dependencies
+├── config.json            # ไฟล์บันทึกการตั้งค่า (สร้างให้อัตโนมัติ)
+└── src/
+    ├── __init__.py
+    ├── config_manager.py  # ระบบจัดการและบันทึกการตั้งค่า JSON
+    ├── notifier.py        # ระบบส่ง Windows Notification และเล่นเสียง TTS ภาษาไทย
+    ├── audio_listener.py  # ระบบดักฟังไมโครโฟนและถอดความภาษาไทย
+    └── gui.py             # หน้าจอแสดงผล GUI (Tkinter Dark Theme)
 ```
 
-ถ้า PowerShell บล็อก `Activate.ps1`:
+---
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe main.py
-```
+## 📄 ใบอนุญาต (License)
 
-### 2) ตั้งชื่อของคุณ
-
-แก้ `config.yaml`:
-
-```yaml
-names:
-  - "ชื่อจริงของคุณ"
-  - "ชื่อเล่น"
-
-aliases:          # คำที่คนมักเรียกผิด / ออกเสียงคล้าย
-  - "คำคล้าย1"
-
-sensitivity: 68   # ต่ำ = จับง่าย | สูง = เข้มงวด
-language: "th"    # th | en | auto
-whisper_model: "base"  # tiny | base | small | medium
-```
-
-### 3) รัน
-
-```powershell
-python main.py
-```
-
-ดูรายการไมค์:
-
-```powershell
-python main.py --list-mics
-```
-
-แล้วใส่เลขใน `config.yaml` → `microphone_index` ถ้าต้องการ
-
-## Alerts
-
-เมื่อจับชื่อได้ โปรแกรมจะ:
-
-1. **เสียงบี๊บ** (Windows Beep)
-2. **Toast notification** มุมขวาล่าง
-3. **พูดออกเสียง** ผ่าน Windows SAPI TTS
-
-ปรับได้ใน `config.yaml` → `alert`
-
-## How it works
-
-```
-ไมโครโฟน → ตัดเสียงเป็นช่วง ๆ
-         → ขยายเสียงเบา (normalize)
-         → Whisper ถอดเสียงเป็นข้อความ
-         → จับคู่ชื่อแบบคลุมเครือ
-         → แจ้งเตือน (+ cooldown กันแจ้งซ้ำ)
-```
-
-## Tuning tips
-
-| ปัญหา | แก้ |
-|--------|-----|
-| จับไม่ค่อยติด | ลด `sensitivity` (เช่น 55–65) หรือเพิ่ม `aliases` |
-| แจ้งเตือนมั่ว | เพิ่ม `sensitivity` (เช่น 75–85) |
-| เสียงไกล/เบา | ลด `energy_threshold` (เช่น 0.008) · ใช้ `whisper_model: small` |
-| มีเสียงรบกวน | เพิ่ม `energy_threshold` เล็กน้อย |
-| ช้า | ใช้ `whisper_model: tiny` หรือ `base` |
-
-## Requirements
-
-- Windows (toast + beep + SAPI TTS)
-- ไมโครโฟน
-- ครั้งแรกจะดาวน์โหลดโมเดล Whisper (~70MB–500MB ตามขนาด)
-
-## CLI
-
-```powershell
-python main.py -v              # log ละเอียด
-python main.py -c my.yaml      # ใช้ config อื่น
-python main.py --list-mics     # รายการไมค์
-```
-
-## Tests
-
-```powershell
-$env:PYTHONPATH = "."
-python tests/test_matcher.py
-```
-
-## License
-
-[MIT](LICENSE)
+โปรเจกต์นี้เผยแพร่ภายใต้ใบอนุญาต [MIT License](LICENSE)

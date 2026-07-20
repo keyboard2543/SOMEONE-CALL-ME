@@ -23,7 +23,9 @@ htmlcov/
 .cache/
 
 # Local / secrets (keep your real name private if forking)
-# config.local.yaml
+config.json
+config.local.yaml
+*.mp3
 
 # Logs & OS
 *.log
