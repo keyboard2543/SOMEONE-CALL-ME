@@ -1,10 +1,11 @@
 import threading
 import time
+import queue
 import speech_recognition as sr
 from typing import List, Optional, Callable, Dict
 
 class AudioListener:
-    """Listens continuously to microphone input and matches target Thai keywords."""
+    """Listens continuously in the background without gaps using a Queue pipeline."""
 
     def __init__(self, config_manager, notifier, log_callback: Optional[Callable[[str], None]] = None, status_callback: Optional[Callable[[str], None]] = None):
         self.config = config_manager
@@ -13,8 +14,15 @@ class AudioListener:
         self.status_callback = status_callback
         
         self.recognizer = sr.Recognizer()
+        # Tune recognition sensitivity & thresholds for continuous responsiveness
+        self.recognizer.pause_threshold = 0.6
+        self.recognizer.phrase_threshold = 0.3
+        self.recognizer.non_speaking_duration = 0.4
+
         self.is_listening = False
-        self._listen_thread: Optional[threading.Thread] = None
+        self.audio_queue: queue.Queue = queue.Queue()
+        self._stop_bg_listener: Optional[Callable] = None
+        self._worker_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
     def log(self, message: str) -> None:
@@ -48,7 +56,48 @@ class AudioListener:
                 return kw
         return None
 
-    def _listen_loop(self) -> None:
+    def _audio_callback(self, recognizer: sr.Recognizer, audio: sr.AudioData) -> None:
+        """Callback invoked immediately when background recorder captures a phrase."""
+        if not self._stop_event.is_set():
+            self.audio_queue.put(audio)
+
+    def _process_queue_loop(self) -> None:
+        """Worker thread processing captured audio chunks asynchronously."""
+        while not self._stop_event.is_set():
+            try:
+                audio = self.audio_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            self.update_status("🟡 กำลังประมวลผลคำพูด...")
+            try:
+                # Recognize Thai speech
+                text = self.recognizer.recognize_google(audio, language=self.config.language)
+                self.log(f"🗣️ ได้ยิน: '{text}'")
+
+                # Check for keyword match
+                matched_kw = self.match_keyword(text)
+                if matched_kw:
+                    self.notifier.trigger_alert(matched_kw, text)
+
+            except sr.UnknownValueError:
+                # Speech was not recognized (silent / background noise)
+                pass
+            except sr.RequestError as e:
+                self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบแปลงเสียง Google: {e}")
+            except Exception as e:
+                if not self._stop_event.is_set():
+                    self.log(f"⚠️ เกิดข้อผิดพลาดในการประมวลผลเสียง: {e}")
+            finally:
+                self.audio_queue.task_done()
+                if self.is_listening and self.audio_queue.empty():
+                    self.update_status("🟢 กำลังฟังเสียงภาษาไทยอย่างต่อเนื่อง...")
+
+    def start_listening(self) -> bool:
+        """Starts continuous non-blocking background listening."""
+        if self.is_listening:
+            return False
+
         mic_index = self.config.mic_index
         mic_name = f"Device #{mic_index}" if mic_index is not None else "Default Microphone"
 
@@ -58,78 +107,56 @@ class AudioListener:
         try:
             mic = sr.Microphone(device_index=mic_index)
             with mic as source:
-                # Adjust for ambient noise
-                self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
-                # Ensure minimum energy threshold
+                # Fast noise calibration
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.8)
                 if self.recognizer.energy_threshold < 100:
                     self.recognizer.energy_threshold = 300
         except Exception as e:
             self.log(f"❌ ไม่สามารถเปิดไมโครโฟนได้: {e}")
             self.update_status("เกิดข้อผิดพลาดในการเปิดไมโครโฟน")
-            self.is_listening = False
-            return
-
-        self.log("🟢 เริ่มต้นการฟังเสียงภาษาไทย (th-TH)...")
-        self.update_status("🟢 กำลังฟังเสียงภาษาไทย...")
-
-        while not self._stop_event.is_set():
-            try:
-                with mic as source:
-                    # Listen for audio phrase (timeout=3s, limit=6s per phrase)
-                    audio = self.recognizer.listen(source, timeout=2.0, phrase_time_limit=5.0)
-
-                if self._stop_event.is_set():
-                    break
-
-                self.update_status("🟡 กำลังประมวลผลคำพูด...")
-                try:
-                    # Recognize Thai speech
-                    text = self.recognizer.recognize_google(audio, language=self.config.language)
-                    self.log(f"🗣️ ได้ยิน: '{text}'")
-
-                    # Check for keyword match
-                    matched_kw = self.match_keyword(text)
-                    if matched_kw:
-                        self.notifier.trigger_alert(matched_kw, text)
-                        
-                except sr.UnknownValueError:
-                    # Speech was unintelligible (normal in silence)
-                    pass
-                except sr.RequestError as e:
-                    self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบแปลงเสียง Google: {e}")
-                    time.sleep(1.0)
-
-                self.update_status("🟢 กำลังฟังเสียงภาษาไทย...")
-
-            except sr.WaitTimeoutError:
-                # Timeout waiting for speech, continue loop
-                pass
-            except Exception as e:
-                if not self._stop_event.is_set():
-                    self.log(f"⚠️ เกิดข้อผิดพลาดในระบบฟังเสียง: {e}")
-                    time.sleep(0.5)
-
-        self.log("🔴 หยุดทำงานการฟังเสียงเรียบร้อยแล้ว")
-        self.update_status("🔴 หยุดการทำงาน")
-        self.is_listening = False
-
-    def start_listening(self) -> bool:
-        """Starts background listening thread."""
-        if self.is_listening:
             return False
 
         self._stop_event.clear()
         self.is_listening = True
-        self._listen_thread = threading.Thread(target=self._listen_loop, daemon=True)
-        self._listen_thread.start()
+
+        # Clear existing queue
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        # Start continuous background audio recorder
+        self._stop_bg_listener = self.recognizer.listen_in_background(
+            mic, 
+            self._audio_callback, 
+            phrase_time_limit=5.0
+        )
+
+        # Start async worker thread for speech recognition
+        self._worker_thread = threading.Thread(target=self._process_queue_loop, daemon=True)
+        self._worker_thread.start()
+
+        self.log("🟢 เริ่มต้นการฟังเสียงภาษาไทยอย่างต่อเนื่อง (Continuous Listening)...")
+        self.update_status("🟢 กำลังฟังเสียงภาษาไทยอย่างต่อเนื่อง...")
         return True
 
     def stop_listening(self) -> bool:
-        """Stops background listening thread."""
+        """Stops continuous background listening."""
         if not self.is_listening:
             return False
 
         self.update_status("กำลังหยุดการฟังเสียง...")
         self._stop_event.set()
+
+        if self._stop_bg_listener:
+            try:
+                self._stop_bg_listener(wait_for_stop=False)
+            except Exception:
+                pass
+            self._stop_bg_listener = None
+
         self.is_listening = False
+        self.log("🔴 หยุดทำงานการฟังเสียงเรียบร้อยแล้ว")
+        self.update_status("🔴 หยุดการทำงาน")
         return True
