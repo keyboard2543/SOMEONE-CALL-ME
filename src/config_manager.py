@@ -10,7 +10,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "tts_phrase": "\u0e21\u0e35\u0e04\u0e19\u0e40\u0e23\u0e35\u0e22\u0e01\u0e0a\u0e37\u0e48\u0e2d\u0e04\u0e38\u0e13\u0e04\u0e48\u0e30",
     "mic_index": None,
     "cooldown_seconds": 5.0,
-    "energy_threshold": 300,
+    "energy_threshold": 150,
     "language": "th-TH"
 }
 

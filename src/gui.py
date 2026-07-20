@@ -245,6 +245,33 @@ class AppGUI:
         self.cbo_mic.pack(fill=tk.X, pady=(0, 6))
         self.cbo_mic.bind("<<ComboboxSelected>>", lambda e: self.save_ui_settings())
 
+        # Sensitivity Scale (ความไวรับเสียง)
+        sens_frame = ttk.Frame(settings_card, style="Card.TFrame")
+        sens_frame.pack(fill=tk.X, pady=(4, 4))
+        ttk.Label(sens_frame, text="🎚️ ความไวรับเสียง (Sensitivity Threshold):", background="#2b2b3b").pack(anchor=tk.W)
+
+        sens_inner = ttk.Frame(sens_frame, style="Card.TFrame")
+        sens_inner.pack(fill=tk.X, pady=(2, 0))
+
+        self.sld_sens = tk.Scale(
+            sens_inner,
+            from_=50,
+            to=600,
+            orient=tk.HORIZONTAL,
+            bg="#2b2b3b",
+            fg="#ffffff",
+            troughcolor="#191923",
+            activebackground="#50fa7b",
+            highlightthickness=0,
+            bd=0,
+            showvalue=False,
+            command=self.on_sens_change
+        )
+        self.sld_sens.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
+        self.lbl_sens_val = ttk.Label(sens_inner, text="150 (ไวสูง-เสียงไกล)", font=("Segoe UI", 9, "bold"), foreground="#50fa7b", background="#2b2b3b")
+        self.lbl_sens_val.pack(side=tk.RIGHT)
+
         # Cooldown entry
         cooldown_frame = ttk.Frame(settings_card, style="Card.TFrame")
         cooldown_frame.pack(fill=tk.X, pady=(2, 0))
@@ -305,6 +332,10 @@ class AppGUI:
         self.spn_cooldown.delete(0, tk.END)
         self.spn_cooldown.insert(0, str(self.config.cooldown_seconds))
 
+        current_sens = self.config.energy_threshold
+        self.sld_sens.set(current_sens)
+        self.on_sens_change(str(current_sens))
+
         # Populate microphone combobox
         mics = self.audio_listener.get_microphone_list()
         mic_values = [" [Default] ไมโครโฟนเริ่มต้นของระบบ"]
@@ -319,6 +350,22 @@ class AppGUI:
 
         self.cbo_mic["values"] = mic_values
         self.cbo_mic.current(selected_index)
+
+    def on_sens_change(self, val_str: str) -> None:
+        try:
+            val = int(float(val_str))
+            self.config.energy_threshold = val
+            if val <= 100:
+                desc = f"{val} (ไวสูงสุด-ดักฟังเสียงไกล)"
+            elif val <= 200:
+                desc = f"{val} (ไวสูง-เสียงไกล/แผ่วเบา)"
+            elif val <= 350:
+                desc = f"{val} (ปานกลาง-เสียงทั่วไป)"
+            else:
+                desc = f"{val} (ไวต่ำ-ต้องพูดใกล้ๆ)"
+            self.lbl_sens_val.config(text=desc)
+        except ValueError:
+            pass
 
     def save_ui_settings(self) -> None:
         # Save keywords
