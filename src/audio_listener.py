@@ -80,7 +80,7 @@ class AudioListener:
             matched_by_acoustic = False
             try:
                 raw_wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
-                ac_result = self.acoustic_matcher.match_audio(raw_wav, threshold=80.0)
+                ac_result = self.acoustic_matcher.match_audio(raw_wav, threshold=85.0)
                 if ac_result:
                     matched_kw, score = ac_result
                     self.log(f"🎵 [Acoustic Waveform Match] พบรูปคลื่นเสียงคล้ายคำว่า '{matched_kw}' (ความเหมือน {score}%)")
