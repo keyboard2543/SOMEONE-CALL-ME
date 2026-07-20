@@ -74,7 +74,7 @@ class AcousticMatcher:
             self.log(f"⚠️ ไม่สามารถสร้าง Template เสียงสำหรับ '{keyword}': {e}")
             return None
 
-    def match_audio(self, raw_wav_bytes: bytes, sample_rate: int = 16000, threshold: float = 85.0) -> Optional[Tuple[str, float]]:
+    def match_audio(self, raw_wav_bytes: bytes, sample_rate: int = 16000, threshold: float = 78.0) -> Optional[Tuple[str, float]]:
         """Compares raw WAV audio bytes against cached TTS templates using Sliding Window DTW."""
         if not self.templates:
             return None
@@ -90,9 +90,9 @@ class AcousticMatcher:
             if y.ndim > 1:
                 y = np.mean(y, axis=1)
 
-            # SILENCE / NOISE GATE: Ignore audio chunks below speech level
+            # SPEECH ENERGY GATE: Ignore quiet room static below human speech level
             rms = float(np.sqrt(np.mean(y ** 2)))
-            if rms < 0.025:
+            if rms < 0.015:
                 return None
 
             if sr_val != 16000:
@@ -124,8 +124,8 @@ class AcousticMatcher:
                         if norm_dist < min_dist:
                             min_dist = norm_dist
 
-                    # Calculate Similarity Score (%) with strict scaling
-                    score = max(0.0, 100.0 - (min_dist * 35.0))
+                    # Calculate Similarity Score (%) tuned for human-like perception
+                    score = max(0.0, 100.0 - (min_dist * 28.0))
                     if score > highest_score:
                         highest_score = score
                         best_match = kw
