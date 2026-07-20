@@ -36,16 +36,17 @@ class AcousticMatcher:
                     if kw_clean in self.templates:
                         new_templates[kw_clean] = self.templates[kw_clean]
                     else:
-                        mfcc = self._generate_tts_mfcc(kw_clean)
-                        if mfcc is not None:
-                            new_templates[kw_clean] = mfcc
-                            self.log(f"🔊 สร้าง Acoustic Template สำหรับคำว่า '{kw_clean}' สำเร็จ")
+                        mfcc_list = self._generate_tts_mfcc(kw_clean)
+                        if mfcc_list:
+                            new_templates[kw_clean] = mfcc_list
+                            self.log(f"🔊 สร้าง Multi-Voice Acoustic Templates (5 โทนเสียง: ชาย/หญิง/เด็ก/ผู้สูงอายุ/เอื้อนเสียง) สำหรับคำว่า '{kw_clean}' สำเร็จ")
                 self.templates = new_templates
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _generate_tts_mfcc(self, keyword: str) -> Optional[np.ndarray]:
-        """Synthesizes TTS reference audio for a keyword and extracts normalized MFCC features."""
+    def _generate_tts_mfcc(self, keyword: str) -> List[np.ndarray]:
+        """Synthesizes TTS reference audio and generates 5 pitch-augmented acoustic templates."""
+        templates = []
         try:
             tts = gTTS(text=keyword, lang="th")
             fp = io.BytesIO()
@@ -54,7 +55,7 @@ class AcousticMatcher:
 
             y, sr_val = sf.read(fp)
             if len(y) == 0:
-                return None
+                return []
 
             # Convert to mono if stereo
             if y.ndim > 1:
@@ -65,14 +66,26 @@ class AcousticMatcher:
                 y = librosa.resample(y, orig_sr=sr_val, target_sr=16000)
                 sr_val = 16000
 
-            # Extract 13 MFCC features
-            mfcc = librosa.feature.mfcc(y=y, sr=sr_val, n_mfcc=13)
-            # Z-score normalization
-            mfcc = (mfcc - np.mean(mfcc)) / (np.std(mfcc) + 1e-8)
-            return mfcc
+            # Pitch Shift semitones: [-6: ผู้ชายทุ้ม/ผู้สูงอายุ, -3: ผู้ชายปานกลาง, 0: มาตรฐาน, +3: ผู้หญิง/เอื้อนเสียง, +6: เสียงเด็ก/แหลมสูง]
+            pitch_steps = [-6, -3, 0, 3, 6]
+
+            for step in pitch_steps:
+                try:
+                    if step == 0:
+                        y_shifted = y
+                    else:
+                        y_shifted = librosa.effects.pitch_shift(y, sr=sr_val, n_steps=step)
+
+                    mfcc = librosa.feature.mfcc(y=y_shifted, sr=sr_val, n_mfcc=13)
+                    mfcc = (mfcc - np.mean(mfcc)) / (np.std(mfcc) + 1e-8)
+                    templates.append(mfcc)
+                except Exception:
+                    pass
+
         except Exception as e:
             self.log(f"⚠️ ไม่สามารถสร้าง Template เสียงสำหรับ '{keyword}': {e}")
-            return None
+
+        return templates
 
     def match_audio(self, raw_wav_bytes: bytes, sample_rate: int = 16000, threshold: float = 78.0) -> Optional[Tuple[str, float]]:
         """Compares raw WAV audio bytes against cached TTS templates using Sliding Window DTW."""
@@ -108,27 +121,28 @@ class AcousticMatcher:
             highest_score: float = 0.0
 
             with self._lock:
-                for kw, mfcc_ref in self.templates.items():
-                    ref_len = mfcc_ref.shape[1]
-                    if mic_len < ref_len * 0.6:
-                        continue
+                for kw, mfcc_list in self.templates.items():
+                    for mfcc_ref in mfcc_list:
+                        ref_len = mfcc_ref.shape[1]
+                        if mic_len < ref_len * 0.6:
+                            continue
 
-                    # Sliding window step size
-                    step = max(1, ref_len // 4)
-                    min_dist = float("inf")
+                        # Sliding window step size
+                        step = max(1, ref_len // 4)
+                        min_dist = float("inf")
 
-                    for i in range(0, max(1, mic_len - ref_len + 1), step):
-                        sub_mic = mfcc_mic[:, i:i + ref_len]
-                        dist, _ = fastdtw(mfcc_ref.T, sub_mic.T, dist=euclidean)
-                        norm_dist = dist / ref_len
-                        if norm_dist < min_dist:
-                            min_dist = norm_dist
+                        for i in range(0, max(1, mic_len - ref_len + 1), step):
+                            sub_mic = mfcc_mic[:, i:i + ref_len]
+                            dist, _ = fastdtw(mfcc_ref.T, sub_mic.T, dist=euclidean)
+                            norm_dist = dist / ref_len
+                            if norm_dist < min_dist:
+                                min_dist = norm_dist
 
-                    # Calculate Similarity Score (%) tuned for human-like perception
-                    score = max(0.0, 100.0 - (min_dist * 28.0))
-                    if score > highest_score:
-                        highest_score = score
-                        best_match = kw
+                        # Calculate Similarity Score (%) tuned for human-like perception
+                        score = max(0.0, 100.0 - (min_dist * 28.0))
+                        if score > highest_score:
+                            highest_score = score
+                            best_match = kw
 
             if best_match and highest_score >= threshold:
                 return (best_match, round(highest_score, 1))
