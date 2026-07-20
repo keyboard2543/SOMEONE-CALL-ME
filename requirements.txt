@@ -1,0 +1,16 @@
+# Microphone capture
+sounddevice>=0.4.6
+numpy>=1.26.0
+
+# Offline speech-to-text
+faster-whisper>=1.0.0
+
+# Fuzzy / phonetic name matching
+rapidfuzz>=3.6.0
+jellyfish>=1.0.0
+
+# Config
+PyYAML>=6.0
+
+# Windows toast notifications
+winotify>=1.1.0
