@@ -88,7 +88,7 @@ class AudioListener:
             except queue.Empty:
                 continue
 
-            self.update_status("🟡 กำลังประมวลผลคำพูด...")
+            self.update_status("🟢 กำลังฟังเสียงอย่างต่อเนื่อง (⚡ กำลังวิเคราะห์สัญญาณเสียง...)")
             matched_kw: Optional[str] = None
             text_transcript: str = ""
 
@@ -124,7 +124,7 @@ class AudioListener:
 
             self.audio_queue.task_done()
             if self.is_listening and self.audio_queue.empty():
-                self.update_status("🟢 กำลังฟังเสียงภาษาไทยอย่างต่อเนื่อง...")
+                self.update_status("🟢 กำลังฟังเสียงอย่างต่อเนื่อง (ไมโครโฟนเปิดอยู่ตลอดเวลา)...")
 
     def start_listening(self) -> bool:
         """Starts continuous non-blocking background listening."""
