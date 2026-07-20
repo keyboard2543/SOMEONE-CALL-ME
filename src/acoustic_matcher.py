@@ -90,6 +90,11 @@ class AcousticMatcher:
             if y.ndim > 1:
                 y = np.mean(y, axis=1)
 
+            # SILENCE GATE: Ignore audio chunks that are quiet/silence
+            rms = float(np.sqrt(np.mean(y ** 2)))
+            if rms < 0.012:
+                return None
+
             if sr_val != 16000:
                 y = librosa.resample(y, orig_sr=sr_val, target_sr=16000)
                 sr_val = 16000
@@ -119,8 +124,8 @@ class AcousticMatcher:
                         if norm_dist < min_dist:
                             min_dist = norm_dist
 
-                    # Calculate Similarity Score (%)
-                    score = max(0.0, 100.0 - (min_dist * 20.0))
+                    # Calculate Similarity Score (%) with stricter scaling
+                    score = max(0.0, 100.0 - (min_dist * 30.0))
                     if score > highest_score:
                         highest_score = score
                         best_match = kw
