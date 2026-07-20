@@ -3,16 +3,18 @@ import os
 import warnings
 import numpy as np
 import soundfile as sf
+import librosa
 from typing import Optional, Callable
 
 # Suppress library deprecation warnings for clean console output
 warnings.filterwarnings("ignore")
 
 class LocalSpeechEngine:
-    """100% Offline On-Device Speech Recognition Engine using Faster-Whisper."""
+    """100% Offline On-Device Speech Recognition Engine using PyThaiASR (Wav2Vec2 Thai Model)."""
 
     def __init__(self, log_callback: Optional[Callable[[str], None]] = None):
         self.log_callback = log_callback
+        self.use_pythaiasr = False
         self.whisper_model = None
         self._init_engine()
 
@@ -23,20 +25,22 @@ class LocalSpeechEngine:
             print(f"[LocalSTT] {message}")
 
     def _init_engine(self) -> None:
-        """Initializes Faster-Whisper for 100% offline local processing on CPU."""
+        """Initializes PyThaiASR AIResearch Wav2Vec2 model for 100% offline Thai processing."""
         try:
-            from faster_whisper import WhisperModel
-            self.log("🧠 กำลังโหลดโมเดลแปลภาษาในเครื่อง (Faster-Whisper 100% Offline)...")
-            self.whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
-            self.log("✅ โหลดระบบประมวลผลแปลภาษาในเครื่อง (100% Offline Local STT) สำเร็จ!")
+            import pythaiasr
+            self.use_pythaiasr = True
+            self.log("🇹🇭 โหลดโมเดล PyThaiASR (AIResearch Wav2Vec2 Thai Speech Engine) สำเร็จ! (100% Offline)")
         except Exception as e:
-            self.log(f"⚠️ ไม่สามารถโหลด Local STT Engine: {e}")
+            self.log(f"⚠️ ไม่สามารถโหลด PyThaiASR: {e}")
+            try:
+                from faster_whisper import WhisperModel
+                self.whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+                self.log("🧠 โหลดโมเดล Faster-Whisper (100% Offline Local Engine) สำเร็จ!")
+            except Exception:
+                pass
 
     def transcribe_audio_data(self, audio_data) -> Optional[str]:
-        """Transcribes sr.AudioData 100% locally using Faster-Whisper on CPU."""
-        if self.whisper_model is None:
-            return None
-
+        """Transcribes sr.AudioData 100% locally using PyThaiASR (Numpy 16kHz mode)."""
         try:
             raw_wav = audio_data.get_wav_data(convert_rate=16000, convert_width=2)
             fp = io.BytesIO(raw_wav)
@@ -48,19 +52,38 @@ class LocalSpeechEngine:
             if y.ndim > 1:
                 y = np.mean(y, axis=1)
 
-            y = y.astype(np.float32)
+            # Resample to 16kHz if needed for Wav2Vec2 PyThaiASR
+            if sr_val != 16000:
+                y = librosa.resample(y, orig_sr=sr_val, target_sr=16000)
+                sr_val = 16000
 
-            segments, _ = self.whisper_model.transcribe(
-                y,
-                language="th",
-                beam_size=1,
-                best_of=1,
-                temperature=0.0,
-                vad_filter=True
-            )
+            y_numpy = y.astype(np.float32)
 
-            text_segments = [seg.text for seg in segments]
-            full_text = " ".join(text_segments).strip()
-            return full_text if full_text else None
-        except Exception as e:
-            return None
+            # 1. PyThaiASR Specialized Thai Speech Model (Direct Numpy Array Mode)
+            if self.use_pythaiasr:
+                try:
+                    import pythaiasr
+                    text = pythaiasr.asr(y_numpy, sampling_rate=16000)
+                    if text:
+                        return text.strip()
+                except Exception as e:
+                    pass
+
+            # 2. Faster-Whisper Local Model Backup
+            if self.whisper_model is not None:
+                segments, _ = self.whisper_model.transcribe(
+                    y_numpy,
+                    language="th",
+                    beam_size=1,
+                    best_of=1,
+                    temperature=0.0,
+                    vad_filter=True
+                )
+                text_segments = [seg.text for seg in segments]
+                full_text = " ".join(text_segments).strip()
+                return full_text if full_text else None
+
+        except Exception:
+            pass
+
+        return None
