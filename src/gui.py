@@ -41,18 +41,72 @@ class AppGUI:
         # Color Palette
         bg_dark = "#1e1e2e"
         card_bg = "#2b2b3b"
+        input_bg = "#191923"
         fg_text = "#f8f8f2"
-        accent_blue = "#6272a4"
         accent_green = "#50fa7b"
 
         self.root.configure(bg=bg_dark)
+
+        # Global OptionDB for Combobox Popdown Listbox & Text Widgets
+        self.root.option_add("*TCombobox*Listbox.background", input_bg)
+        self.root.option_add("*TCombobox*Listbox.foreground", fg_text)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", "#6272a4")
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
+        self.root.option_add("*TCombobox*Listbox.font", ("Segoe UI", 9))
 
         style.configure(".", background=bg_dark, foreground=fg_text, font=("Segoe UI", 10))
         style.configure("Card.TFrame", background=card_bg, relief="flat")
         style.configure("Header.TLabel", font=("Segoe UI", 16, "bold"), foreground="#bd93f9", background=bg_dark)
         style.configure("SubHeader.TLabel", font=("Segoe UI", 9), foreground="#6272a4", background=bg_dark)
         style.configure("Status.TLabel", font=("Segoe UI", 12, "bold"), foreground=accent_green, background=card_bg)
+
+        # Checkbutton Styling
+        style.configure("TCheckbutton", background=card_bg, foreground=fg_text)
+        style.map("TCheckbutton", background=[("active", card_bg)], foreground=[("active", "#ffffff")])
+
+        # Entry Styling (Input Boxes)
+        style.configure(
+            "TEntry",
+            fieldbackground=input_bg,
+            foreground="#ffffff",
+            insertcolor="#ffffff",
+            bordercolor="#6272a4",
+            lightcolor="#6272a4",
+            darkcolor="#6272a4"
+        )
+
+        # Combobox Styling (Dropdown Menu)
+        style.configure(
+            "TCombobox",
+            fieldbackground=input_bg,
+            foreground="#ffffff",
+            background=card_bg,
+            arrowcolor="#ffffff",
+            bordercolor="#6272a4"
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", input_bg), ("focus", input_bg)],
+            foreground=[("readonly", "#ffffff"), ("focus", "#ffffff")],
+            selectbackground=[("readonly", "#6272a4")],
+            selectforeground=[("readonly", "#ffffff")]
+        )
+
+        # Spinbox Styling
+        style.configure(
+            "TSpinbox",
+            fieldbackground=input_bg,
+            foreground="#ffffff",
+            arrowcolor="#ffffff",
+            bordercolor="#6272a4"
+        )
+        style.map(
+            "TSpinbox",
+            fieldbackground=[("readonly", input_bg), ("focus", input_bg)],
+            foreground=[("readonly", "#ffffff"), ("focus", "#ffffff")]
+        )
         
+        # Buttons Styling
         style.configure("TButton", font=("Segoe UI", 10, "bold"), padding=6)
         style.configure("Start.TButton", background="#50fa7b", foreground="#1e1e2e")
         style.map("Start.TButton", background=[("active", "#40c964")])
@@ -133,7 +187,17 @@ class AppGUI:
         add_frame = ttk.Frame(kw_card, style="Card.TFrame")
         add_frame.pack(fill=tk.X)
 
-        self.entry_kw = ttk.Entry(add_frame, font=("Segoe UI", 10))
+        self.entry_kw = tk.Entry(
+            add_frame,
+            font=("Segoe UI", 10),
+            bg="#191923",
+            fg="#ffffff",
+            insertbackground="#ffffff",
+            selectbackground="#6272a4",
+            selectforeground="#ffffff",
+            bd=1,
+            relief="solid"
+        )
         self.entry_kw.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.entry_kw.bind("<Return>", lambda e: self.on_add_keyword())
 
@@ -160,7 +224,17 @@ class AppGUI:
 
         # TTS Phrase input
         ttk.Label(settings_card, text="ข้อความเสียงพูดภาษาไทย:", background="#2b2b3b").pack(anchor=tk.W, pady=(4, 1))
-        self.entry_tts = ttk.Entry(settings_card, font=("Segoe UI", 10))
+        self.entry_tts = tk.Entry(
+            settings_card,
+            font=("Segoe UI", 10),
+            bg="#191923",
+            fg="#ffffff",
+            insertbackground="#ffffff",
+            selectbackground="#6272a4",
+            selectforeground="#ffffff",
+            bd=1,
+            relief="solid"
+        )
         self.entry_tts.pack(fill=tk.X, pady=(0, 6))
         self.entry_tts.bind("<FocusOut>", lambda e: self.save_ui_settings())
         self.entry_tts.bind("<Return>", lambda e: self.save_ui_settings())
@@ -175,7 +249,21 @@ class AppGUI:
         cooldown_frame = ttk.Frame(settings_card, style="Card.TFrame")
         cooldown_frame.pack(fill=tk.X, pady=(2, 0))
         ttk.Label(cooldown_frame, text="ระยะเวลา Cooldown (วินาที):", background="#2b2b3b").pack(side=tk.LEFT)
-        self.spn_cooldown = ttk.Spinbox(cooldown_frame, from_=1.0, to=60.0, increment=1.0, width=5, font=("Segoe UI", 9))
+        self.spn_cooldown = tk.Spinbox(
+            cooldown_frame,
+            from_=1.0,
+            to=60.0,
+            increment=1.0,
+            width=5,
+            font=("Segoe UI", 9),
+            bg="#191923",
+            fg="#ffffff",
+            insertbackground="#ffffff",
+            selectbackground="#6272a4",
+            selectforeground="#ffffff",
+            bd=1,
+            relief="solid"
+        )
         self.spn_cooldown.pack(side=tk.LEFT, padx=6)
         self.spn_cooldown.bind("<FocusOut>", lambda e: self.save_ui_settings())
 
