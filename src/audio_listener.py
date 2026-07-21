@@ -1,12 +1,11 @@
 import threading
-import time
 import queue
 import speech_recognition as sr
 from typing import List, Optional, Callable, Dict
-from src.local_stt import LocalSpeechEngine
+from difflib import SequenceMatcher
 
 class AudioListener:
-    """Listens continuously using Pure Speech-To-Text (STT) Keyword Recognition Engines."""
+    """Listens continuously using single-engine Google Speech-To-Text (STT) Keyword Recognition."""
 
     def __init__(self, config_manager, notifier, log_callback: Optional[Callable[[str], None]] = None, status_callback: Optional[Callable[[str], None]] = None):
         self.config = config_manager
@@ -20,9 +19,6 @@ class AudioListener:
         self.recognizer.phrase_threshold = 0.1
         self.recognizer.non_speaking_duration = 0.5
         self.recognizer.dynamic_energy_threshold = False
-
-        # 100% Local On-Device Speech Engine (Faster-Whisper)
-        self.local_stt = LocalSpeechEngine(log_callback=self.log)
 
         self.is_listening = False
         self.audio_queue: queue.Queue = queue.Queue()
@@ -55,7 +51,6 @@ class AudioListener:
     def match_keyword(self, text: str) -> Optional[str]:
         """Checks if any configured keyword is found in the transcribed text (exact substring or fuzzy match)."""
         text_lower = text.lower().strip()
-        from difflib import SequenceMatcher
 
         for kw in self.config.keywords:
             kw_clean = kw.lower().strip()
@@ -81,7 +76,7 @@ class AudioListener:
             self.audio_queue.put(audio)
 
     def _process_queue_loop(self) -> None:
-        """Worker thread processing captured audio chunks using Pure Speech-To-Text Engines."""
+        """Worker thread processing captured audio chunks using Single-Engine Google Speech-To-Text."""
         while not self._stop_event.is_set():
             try:
                 audio = self.audio_queue.get(timeout=0.5)
@@ -89,35 +84,27 @@ class AudioListener:
                 continue
 
             self.update_status("🟢 กำลังฟังเสียงอย่างต่อเนื่อง (⚡ กำลังวิเคราะห์สัญญาณเสียง...)")
-            matched_kw: Optional[str] = None
 
-            # --- Engine 1 (Primary): 100% Local On-Device Speech Recognition (Faster-Whisper) ---
             try:
-                local_text = self.local_stt.transcribe_audio_data(audio)
-                if local_text:
-                    self.log(f"💻 [Local On-Device] ได้ยิน: '{local_text}'")
-                    matched_kw = self.match_keyword(local_text)
-                    if matched_kw:
-                        self.notifier.trigger_alert(matched_kw, f"[Local] {local_text}")
-            except Exception:
-                pass
+                # Primary & Only Engine: Google Speech Recognition
+                text_transcript = self.recognizer.recognize_google(audio, language=self.config.language)
+                self.log(f"🗣️ ได้ยิน: '{text_transcript}'")
 
-            # --- Engine 2 (Secondary Fallback): Google STT Backup ---
-            if not matched_kw:
-                try:
-                    cloud_text = self.recognizer.recognize_google(audio, language=self.config.language)
-                    self.log(f"☁️ [Cloud Backup] ได้ยิน: '{cloud_text}'")
-                    matched_kw = self.match_keyword(cloud_text)
-                    if matched_kw:
-                        self.notifier.trigger_alert(matched_kw, f"[Cloud] {cloud_text}")
-                except sr.UnknownValueError:
-                    pass
-                except Exception:
-                    pass
+                matched_kw = self.match_keyword(text_transcript)
+                if matched_kw:
+                    self.notifier.trigger_alert(matched_kw, text_transcript)
+            except sr.UnknownValueError:
+                # Speech was faint or unintelligible
+                pass
+            except sr.RequestError as e:
+                self.log(f"⚠️ ไม่สามารถเชื่อมต่อระบบ Google STT: {e}")
+            except Exception as e:
+                if not self._stop_event.is_set():
+                    self.log(f"⚠️ เกิดข้อผิดพลาดในการประมวลผลเสียง: {e}")
 
             self.audio_queue.task_done()
             if self.is_listening and self.audio_queue.empty():
-                self.update_status("🟢 กำลังฟังเสียงอย่างต่อเนื่อง (ไมโครโฟนเปิดอยู่ตลอดเวลา)...")
+                self.update_status("🟢 กำลังฟังเสียงภาษาไทยอย่างต่อเนื่อง (ไมโครโฟนเปิดอยู่ตลอดเวลา)...")
 
     def start_listening(self) -> bool:
         """Starts continuous non-blocking background listening."""
@@ -163,7 +150,7 @@ class AudioListener:
         self._worker_thread = threading.Thread(target=self._process_queue_loop, daemon=True)
         self._worker_thread.start()
 
-        self.log("🟢 เริ่มต้นการฟังเสียงภาษาไทยอย่างต่อเนื่อง (Continuous Listening)...")
+        self.log("🟢 เริ่มต้นการฟังเสียงภาษาไทยอย่างต่อเนื่อง (Google Speech-To-Text)...")
         self.update_status("🟢 กำลังฟังเสียงภาษาไทยอย่างต่อเนื่อง...")
         return True
 
