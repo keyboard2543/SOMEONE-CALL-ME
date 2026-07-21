@@ -3,12 +3,10 @@ import time
 import queue
 import speech_recognition as sr
 from typing import List, Optional, Callable, Dict
-from src.acoustic_matcher import AcousticMatcher
-
 from src.local_stt import LocalSpeechEngine
 
 class AudioListener:
-    """Listens continuously using a 100% Local On-Device Engine + Multi-Voice Acoustic Matcher."""
+    """Listens continuously using Pure Speech-To-Text (STT) Keyword Recognition Engines."""
 
     def __init__(self, config_manager, notifier, log_callback: Optional[Callable[[str], None]] = None, status_callback: Optional[Callable[[str], None]] = None):
         self.config = config_manager
@@ -23,11 +21,8 @@ class AudioListener:
         self.recognizer.non_speaking_duration = 0.5
         self.recognizer.dynamic_energy_threshold = False
 
-        # 100% Local On-Device Offline Speech Engine (Faster-Whisper)
+        # 100% Local On-Device Speech Engine (Faster-Whisper)
         self.local_stt = LocalSpeechEngine(log_callback=self.log)
-
-        # Multi-Voice Acoustic Waveform Feature Matcher (5 Pitch Templates)
-        self.acoustic_matcher = AcousticMatcher(log_callback=self.log)
 
         self.is_listening = False
         self.audio_queue: queue.Queue = queue.Queue()
@@ -58,7 +53,7 @@ class AudioListener:
         return mics
 
     def match_keyword(self, text: str) -> Optional[str]:
-        """Checks if any configured keyword is found in the text (substring or fuzzy match)."""
+        """Checks if any configured keyword is found in the transcribed text (exact substring or fuzzy match)."""
         text_lower = text.lower().strip()
         from difflib import SequenceMatcher
 
@@ -86,7 +81,7 @@ class AudioListener:
             self.audio_queue.put(audio)
 
     def _process_queue_loop(self) -> None:
-        """Worker thread processing captured audio chunks using 100% Local On-Device Engines."""
+        """Worker thread processing captured audio chunks using Pure Speech-To-Text Engines."""
         while not self._stop_event.is_set():
             try:
                 audio = self.audio_queue.get(timeout=0.5)
@@ -95,9 +90,8 @@ class AudioListener:
 
             self.update_status("🟢 กำลังฟังเสียงอย่างต่อเนื่อง (⚡ กำลังวิเคราะห์สัญญาณเสียง...)")
             matched_kw: Optional[str] = None
-            text_transcript: str = ""
 
-            # --- Engine 1 (Primary): 100% Local On-Device Offline Speech Recognition (Faster-Whisper) ---
+            # --- Engine 1 (Primary): 100% Local On-Device Speech Recognition (Faster-Whisper) ---
             try:
                 local_text = self.local_stt.transcribe_audio_data(audio)
                 if local_text:
@@ -105,23 +99,10 @@ class AudioListener:
                     matched_kw = self.match_keyword(local_text)
                     if matched_kw:
                         self.notifier.trigger_alert(matched_kw, f"[Local] {local_text}")
-            except Exception as e:
+            except Exception:
                 pass
 
-            # --- Engine 2 (Secondary): Multi-Voice Acoustic Waveform Matcher (100% Local) ---
-            if not matched_kw:
-                try:
-                    raw_wav = audio.get_wav_data(convert_rate=16000, convert_width=2)
-                    ac_result = self.acoustic_matcher.match_audio(raw_wav, threshold=75.0)
-                    if ac_result:
-                        kw, score = ac_result
-                        self.log(f"🎵 [Acoustic Waveform Match] พบรูปคลื่นเสียงคล้ายคำว่า '{kw}' (ความเหมือน {score}%)")
-                        self.notifier.trigger_alert(kw, f"รูปคลื่นเสียงคล้ายคำว่า '{kw}' ({score}%)")
-                        matched_kw = kw
-                except Exception:
-                    pass
-
-            # --- Engine 3 (Tertiary): Cloud Google STT Backup ---
+            # --- Engine 2 (Secondary Fallback): Google STT Backup ---
             if not matched_kw:
                 try:
                     cloud_text = self.recognizer.recognize_google(audio, language=self.config.language)
@@ -148,9 +129,6 @@ class AudioListener:
 
         self.log(f"🎙️ กำลังเปิดใช้งานไมโครโฟน ({mic_name})...")
         self.update_status("กำลังปรับตั้งค่าเสียงรบกวนรอบข้าง...")
-
-        # Generate / update acoustic TTS templates for keywords
-        self.acoustic_matcher.update_keywords(self.config.keywords)
 
         try:
             mic = sr.Microphone(device_index=mic_index)
